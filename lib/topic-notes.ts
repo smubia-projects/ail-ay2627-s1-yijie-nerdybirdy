@@ -6,7 +6,7 @@ import { UserFacingError } from "@/lib/http";
 import { pageRange } from "@/lib/mastery";
 import { sanitizeText, wrapNotes } from "@/lib/safety/injection";
 import { spendLLMCalls } from "@/lib/safety/limits";
-import type { UserContext } from "@/lib/supabase/server";
+import type { UserContext } from "@/lib/db/context";
 
 const NOTES_CHARS = 14_000;
 const UNDEFINED_COLUMN = "42703"; // study_notes column not added yet (0002 not run)
@@ -14,14 +14,14 @@ const UNDEFINED_COLUMN = "42703"; // study_notes column not added yet (0002 not 
 // Returns cached study notes for a topic, or generates, validates and caches them.
 export async function getStudyNotes(ctx: UserContext, topicId: string): Promise<StudyNotes> {
   let cacheAvailable = true;
-  let { data: topic, error } = await ctx.supabase
+  let { data: topic, error } = await ctx.db
     .from("topics")
     .select("id, course_id, name, page_start, page_end, study_notes")
     .eq("id", topicId)
     .maybeSingle();
   if (error?.code === UNDEFINED_COLUMN) {
     cacheAvailable = false;
-    ({ data: topic, error } = await ctx.supabase
+    ({ data: topic, error } = await ctx.db
       .from("topics")
       .select("id, course_id, name, page_start, page_end")
       .eq("id", topicId)
@@ -33,7 +33,7 @@ export async function getStudyNotes(ctx: UserContext, topicId: string): Promise<
   const cached = cacheAvailable ? StudyNotesSchema.safeParse(topic.study_notes) : null;
   if (cached?.success) return cached.data;
 
-  const { data: pages, error: pageError } = await ctx.supabase
+  const { data: pages, error: pageError } = await ctx.db
     .from("pages")
     .select("page_number, text")
     .eq("course_id", topic.course_id)
@@ -83,7 +83,7 @@ export async function getStudyNotes(ctx: UserContext, topicId: string): Promise<
   }
 
   if (cacheAvailable) {
-    await ctx.supabase.from("topics").update({ study_notes: notes }).eq("id", topicId);
+    await ctx.db.from("topics").update({ study_notes: notes }).eq("id", topicId);
   }
   return notes;
 }

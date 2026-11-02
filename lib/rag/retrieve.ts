@@ -1,7 +1,7 @@
 import "server-only";
 import { embedOne } from "@/lib/ai/openrouter";
 import { spendLLMCalls } from "@/lib/safety/limits";
-import type { UserContext } from "@/lib/supabase/server";
+import type { UserContext } from "@/lib/db/context";
 
 export type RetrievedChunk = { page_number: number; content: string; similarity: number };
 
@@ -16,7 +16,7 @@ export async function retrieveChunks(
 ): Promise<RetrievedChunk[]> {
   await spendLLMCalls({ ...ctx, courseId });
   const vector = await embedOne(query);
-  const { data, error } = await ctx.supabase.rpc("match_chunks", {
+  const { data, error } = await ctx.db.rpc("match_chunks", {
     p_course_id: courseId,
     p_query: vector,
     p_count: opts.count ?? 6,
@@ -29,7 +29,7 @@ export async function retrieveChunks(
   }));
 
   if (opts.extraPages && opts.extraPages.length > 0) {
-    const { data: extra, error: extraError } = await ctx.supabase
+    const { data: extra, error: extraError } = await ctx.db
       .from("chunks")
       .select("page_number, content")
       .eq("course_id", courseId)

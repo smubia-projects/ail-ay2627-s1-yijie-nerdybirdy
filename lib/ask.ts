@@ -16,7 +16,7 @@ import { sanitizeText, wrapConversation, wrapNotes, wrapStudentText } from "@/li
 import { spendLLMCalls } from "@/lib/safety/limits";
 import { detectSelfHarm, WELLBEING_KEYWORD_MESSAGE } from "@/lib/safety/wellbeing";
 import { UserFacingError } from "@/lib/http";
-import type { UserContext } from "@/lib/supabase/server";
+import type { UserContext } from "@/lib/db/context";
 
 // ---------- Request parsing (deterministic, used by the route and evals) ----------
 
@@ -71,7 +71,7 @@ function notInNotes(note: string | null = null): AskResult {
 
 async function logStatus(ctx: UserContext, courseId: string, status: AskStatus, general: boolean) {
   if (status === "integrity_boundary" || status === "wellbeing_support" || status === "unsafe_request") {
-    await logSafetyEvent(ctx.supabase, {
+    await logSafetyEvent(ctx.db, {
       type: status,
       courseId,
       detail: { source: general ? "ask_general" : "ask", trigger: "model" },
@@ -84,7 +84,7 @@ export async function askProfessor(ctx: UserContext, req: AskRequest): Promise<A
 
   // 1. Wellbeing pre-check: forces the support card and skips the normal answer.
   if (detectSelfHarm(question)) {
-    await logSafetyEvent(ctx.supabase, {
+    await logSafetyEvent(ctx.db, {
       type: "wellbeing_support",
       courseId: req.courseId,
       detail: { source: "ask", trigger: "keyword" },
@@ -98,7 +98,7 @@ export async function askProfessor(ctx: UserContext, req: AskRequest): Promise<A
     };
   }
 
-  const { data: course, error } = await ctx.supabase
+  const { data: course, error } = await ctx.db
     .from("courses")
     .select("id, page_count")
     .eq("id", req.courseId)
@@ -158,7 +158,7 @@ export async function askProfessor(ctx: UserContext, req: AskRequest): Promise<A
       out = await call(check.message);
       check = out.status === "answered" ? validateCitations(out, retrievedPages) : { ok: true };
       if (!check.ok) {
-        await logSafetyEvent(ctx.supabase, {
+        await logSafetyEvent(ctx.db, {
           type: "citation_invalid",
           courseId: req.courseId,
           detail: {

@@ -8,7 +8,7 @@ import { sanitizeText, scanForInjection, wrapNotes } from "@/lib/safety/injectio
 import { logSafetyEvent } from "@/lib/safety/events";
 import { spendLLMCalls } from "@/lib/safety/limits";
 import { UserFacingError } from "@/lib/http";
-import type { UserContext } from "@/lib/supabase/server";
+import type { UserContext } from "@/lib/db/context";
 
 const EMBED_BATCH = 64;
 // Total characters of notes sent to the topic-map call.
@@ -17,7 +17,7 @@ const TOPIC_MAP_CHAR_BUDGET = 100_000;
 type CourseRow = { id: string; page_count: number; flagged_pages: number[] };
 
 async function loadCourse(ctx: UserContext, courseId: string): Promise<CourseRow> {
-  const { data, error } = await ctx.supabase
+  const { data, error } = await ctx.db
     .from("courses")
     .select("id, page_count, flagged_pages")
     .eq("id", courseId)
@@ -33,7 +33,7 @@ export async function createCourse(
   ctx: UserContext,
   input: { name: string; examDate: string | null; pageCount: number },
 ): Promise<{ id: string }> {
-  const { count, error: countError } = await ctx.supabase
+  const { count, error: countError } = await ctx.db
     .from("courses")
     .select("id", { count: "exact", head: true });
   if (countError) throw countError;
@@ -43,7 +43,7 @@ export async function createCourse(
     );
   }
   const name = sanitizeText(input.name).slice(0, LIMITS.maxCourseNameChars) || "My notes";
-  const { data, error } = await ctx.supabase
+  const { data, error } = await ctx.db
     .from("courses")
     .insert({ name, exam_date: input.examDate, page_count: input.pageCount })
     .select("id")
@@ -73,7 +73,7 @@ export async function ingestBatch(
   }
 
   // 4. Store pages (upsert so a retried batch doesn't fail).
-  const { error: pageError } = await ctx.supabase.from("pages").upsert(
+  const { error: pageError } = await ctx.db.from("pages").upsert(
     pages.map((p) => ({ course_id: courseId, page_number: p.page, text: p.text })),
     { onConflict: "course_id,page_number" },
   );
@@ -84,7 +84,7 @@ export async function ingestBatch(
 
   // 6. Embed and insert (clearing any chunks from a previous attempt).
   const pageNumbers = pages.map((p) => p.page);
-  const { error: delError } = await ctx.supabase
+  const { error: delError } = await ctx.db
     .from("chunks")
     .delete()
     .eq("course_id", courseId)
@@ -94,7 +94,7 @@ export async function ingestBatch(
   if (chunks.length > 0) {
     await spendLLMCalls({ ...ctx, courseId }, Math.ceil(chunks.length / EMBED_BATCH));
     const vectors = await embed(chunks.map((c) => `Page ${c.page}: ${c.content}`));
-    const { error: chunkError } = await ctx.supabase.from("chunks").insert(
+    const { error: chunkError } = await ctx.db.from("chunks").insert(
       chunks.map((c, i) => ({
         course_id: courseId,
         page_number: c.page,
@@ -110,12 +110,12 @@ export async function ingestBatch(
     const merged = [...new Set([...(course.flagged_pages ?? []), ...flaggedPages])].sort(
       (a, b) => a - b,
     );
-    const { error } = await ctx.supabase
+    const { error } = await ctx.db
       .from("courses")
       .update({ flagged_pages: merged })
       .eq("id", courseId);
     if (error) throw error;
-    await logSafetyEvent(ctx.supabase, {
+    await logSafetyEvent(ctx.db, {
       type: "injection_flagged",
       courseId,
       detail: {
@@ -151,7 +151,7 @@ export async function finalizeCourse(
   courseId: string,
 ): Promise<{ topicCount: number; flaggedPages: number[] }> {
   const course = await loadCourse(ctx, courseId);
-  const { data: pages, error } = await ctx.supabase
+  const { data: pages, error } = await ctx.db
     .from("pages")
     .select("page_number, text")
     .eq("course_id", courseId)
@@ -179,9 +179,9 @@ export async function finalizeCourse(
     name: "topic_map",
   });
 
-  const { error: delError } = await ctx.supabase.from("topics").delete().eq("course_id", courseId);
+  const { error: delError } = await ctx.db.from("topics").delete().eq("course_id", courseId);
   if (delError) throw delError;
-  const { error: insError } = await ctx.supabase.from("topics").insert(
+  const { error: insError } = await ctx.db.from("topics").insert(
     result.topics.map((t) => ({
       course_id: courseId,
       name: sanitizeText(t.name),

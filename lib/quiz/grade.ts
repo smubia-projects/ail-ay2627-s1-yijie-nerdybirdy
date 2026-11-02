@@ -16,8 +16,7 @@ import { logSafetyEvent } from "@/lib/safety/events";
 import { neutralizeDelimiters, sanitizeText, scanForInjection, wrapNotes, wrapStudentText } from "@/lib/safety/injection";
 import { spendLLMCalls } from "@/lib/safety/limits";
 import { detectSelfHarm, WELLBEING_KEYWORD_MESSAGE } from "@/lib/safety/wellbeing";
-import { createAdminClient } from "@/lib/supabase/admin";
-import type { UserContext } from "@/lib/supabase/server";
+import type { UserContext } from "@/lib/db/context";
 import type { GradeResponse } from "@/lib/quiz/types";
 
 const MIN_ANSWER_CHARS = 3;
@@ -75,7 +74,7 @@ function whatHappened(mistake: string, mixedUpWith: string | null): string | nul
 
 export async function gradeAnswer(ctx: UserContext, req: GradeRequest): Promise<GradeResult> {
   // Ownership check with the user-scoped client (RLS).
-  const { data: question, error } = await ctx.supabase
+  const { data: question, error } = await ctx.db
     .from("questions")
     .select("id, course_id, topic_id, format, level, public_payload, source_pages")
     .eq("id", req.questionId)
@@ -83,7 +82,7 @@ export async function gradeAnswer(ctx: UserContext, req: GradeRequest): Promise<
   if (error) throw error;
   if (!question) throw new UserFacingError("We couldn't find that question.", 404);
 
-  const { count: already } = await ctx.supabase
+  const { count: already } = await ctx.db
     .from("attempts")
     .select("id", { count: "exact", head: true })
     .eq("question_id", question.id);
@@ -95,7 +94,7 @@ export async function gradeAnswer(ctx: UserContext, req: GradeRequest): Promise<
   if (format !== "mcq") {
     // Wellbeing pre-check on free text: show support instead of grading.
     if (detectSelfHarm(answer)) {
-      await logSafetyEvent(ctx.supabase, {
+      await logSafetyEvent(ctx.db, {
         type: "wellbeing_support",
         courseId: question.course_id,
         detail: { source: "quiz_answer", trigger: "keyword" },
@@ -105,7 +104,7 @@ export async function gradeAnswer(ctx: UserContext, req: GradeRequest): Promise<
     // Instruction-like answers are graded normally; just log that we saw it.
     const scan = scanForInjection(answer);
     if (scan.flagged) {
-      await logSafetyEvent(ctx.supabase, {
+      await logSafetyEvent(ctx.db, {
         type: "injection_flagged",
         courseId: question.course_id,
         detail: { source: "answer", question_id: question.id, patterns: scan.patterns },
@@ -113,8 +112,8 @@ export async function gradeAnswer(ctx: UserContext, req: GradeRequest): Promise<
     }
   }
 
-  // Answer key: server-only table, admin client.
-  const { data: keyRow, error: keyError } = await createAdminClient()
+  // Answer key: never sent to the browser; read only here, scoped to this user.
+  const { data: keyRow, error: keyError } = await ctx.db
     .from("question_keys")
     .select("user_id, private_payload")
     .eq("question_id", question.id)
@@ -182,7 +181,7 @@ export async function gradeAnswer(ctx: UserContext, req: GradeRequest): Promise<
   const missedPages = [...new Set(keyPoints.filter((_, i) => !hitsList[i]).map((k) => k.page))].sort((a, b) => a - b);
   const somethingMissed = hits < total;
 
-  const { error: attemptError } = await ctx.supabase.from("attempts").insert({
+  const { error: attemptError } = await ctx.db.from("attempts").insert({
     question_id: question.id,
     course_id: question.course_id,
     topic_id: question.topic_id,
@@ -237,7 +236,7 @@ async function gradeFreeText(
   key: PrivatePayload,
   answer: string,
 ) {
-  const { data: pages, error } = await ctx.supabase
+  const { data: pages, error } = await ctx.db
     .from("pages")
     .select("page_number, text")
     .eq("course_id", courseId)
@@ -284,8 +283,8 @@ async function updateMastery(
   attempt: { verdict: Verdict; confidence: z.infer<typeof Confidence>; questionLevel: number },
 ) {
   const [{ data: topic, error }, { data: recent, error: recentError }] = await Promise.all([
-    ctx.supabase.from("topics").select("mastery_level, level_progress, danger_zone").eq("id", topicId).single(),
-    ctx.supabase
+    ctx.db.from("topics").select("mastery_level, level_progress, danger_zone").eq("id", topicId).single(),
+    ctx.db
       .from("attempts")
       .select("verdict")
       .eq("topic_id", topicId)
@@ -299,7 +298,7 @@ async function updateMastery(
     ...attempt,
     recentVerdicts: (recent ?? []).map((r) => r.verdict as Verdict),
   });
-  const { error: updateError } = await ctx.supabase
+  const { error: updateError } = await ctx.db
     .from("topics")
     .update({
       mastery_level: next.mastery_level,

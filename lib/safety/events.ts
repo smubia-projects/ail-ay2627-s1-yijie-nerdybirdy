@@ -1,4 +1,4 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { ScopedDb } from "@/lib/db/scoped";
 
 export type SafetyEventType =
   | "injection_flagged"
@@ -9,11 +9,11 @@ export type SafetyEventType =
   | "unsafe_request"
   | "rate_limited";
 
-// Writes a safety event with the user-scoped client (RLS: own rows only).
+// Writes a safety event with the user-scoped db (own rows only).
 // `detail` must never contain note or answer text: only ids, page numbers,
 // pattern names and counts. Never throws.
 export async function logSafetyEvent(
-  supabase: SupabaseClient,
+  db: ScopedDb,
   event: {
     type: SafetyEventType;
     courseId?: string | null;
@@ -21,7 +21,7 @@ export async function logSafetyEvent(
   },
 ): Promise<void> {
   try {
-    await supabase.from("safety_events").insert({
+    await db.from("safety_events").insert({
       type: event.type,
       course_id: event.courseId ?? null,
       detail: event.detail ?? {},
