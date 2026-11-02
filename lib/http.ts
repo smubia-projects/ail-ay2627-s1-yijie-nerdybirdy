@@ -29,7 +29,7 @@ export async function readJSON(req: Request): Promise<unknown> {
 // never note or answer text.
 export function routeError(err: unknown, where: string): Response {
   if (err instanceof UserFacingError) return jsonError(err.status, err.message);
-  if (err instanceof RateLimitError) return jsonError(429, err.message);
+  if (err instanceof RateLimitError) return Response.json(err.body, { status: err.status });
   if (err instanceof LLMError) {
     console.error(`[${where}] LLMError`, err.code, err.status ?? "");
     return jsonError(

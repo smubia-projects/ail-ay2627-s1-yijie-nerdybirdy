@@ -43,3 +43,6 @@ next-env.d.ts
 
 # pdf.js worker (copied from node_modules by predev/prebuild)
 /public/pdf.worker.min.mjs
+
+# API bundle (npm run build:server)
+server/dist/

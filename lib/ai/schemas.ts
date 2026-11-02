@@ -11,8 +11,8 @@ const page = z.number().int().min(1);
 
 export const LIMITS = {
   maxPdfBytes: 25 * 1024 * 1024,
-  maxPages: 150,
-  maxCoursesPerUser: 5,
+  maxPages: 60, // AI Lodge demo (was 150)
+  maxCoursesPerUser: 3, // AI Lodge demo (was 5)
   ingestBatchPages: 20,
   maxPageChars: 20_000,
   minReadablePageChars: 30,
