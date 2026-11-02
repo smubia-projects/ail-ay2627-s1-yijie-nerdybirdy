@@ -7,8 +7,8 @@ import { InjectionBanner } from "@/components/SafetyCards";
 import { Loading } from "@/components/Spinner";
 import { TopicNotesModal } from "@/components/TopicNotesModal";
 import { LEVEL_NAMES, pageRange } from "@/lib/mastery";
-import { createClient } from "@/lib/supabase/client";
-import { useSession } from "@/lib/supabase/use-session";
+import { deleteJSON, getJSON, type CourseResponse } from "@/lib/api-client";
+import { useSession } from "@/lib/session";
 
 type Course = {
   id: string;
@@ -61,29 +61,19 @@ export function CourseHome() {
 
   useEffect(() => {
     if (session !== "ready") return;
-    const supabase = createClient();
-    Promise.all([
-      supabase
-        .from("courses")
-        .select("id, name, exam_date, page_count, flagged_pages, created_at")
-        .eq("id", id)
-        .maybeSingle(),
-      supabase
-        .from("topics")
-        .select("id, name, summary, page_start, page_end, mastery_level, danger_zone")
-        .eq("course_id", id)
-        .order("page_start"),
-    ]).then(([c, t]) => {
-      if (c.error || t.error) setLoad({ kind: "error" });
-      else if (!c.data) setLoad({ kind: "missing" });
-      else setLoad({ kind: "ok", course: c.data as Course, topics: (t.data ?? []) as Topic[] });
-    });
+    getJSON<CourseResponse>(`/api/courses/${id}`).then(
+      ({ course, topics }) => {
+        if (!course) setLoad({ kind: "missing" });
+        else setLoad({ kind: "ok", course: course as Course, topics: topics as Topic[] });
+      },
+      () => setLoad({ kind: "error" }),
+    );
   }, [session, id]);
 
   async function onDelete() {
     setDeleting(true);
     setDeleteError(false);
-    const { error } = await createClient().from("courses").delete().eq("id", id);
+    const error = await deleteJSON(`/api/courses/${id}`).then(() => null, (err: unknown) => err);
     if (error) {
       setDeleting(false);
       setDeleteError(true);

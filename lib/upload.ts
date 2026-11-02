@@ -1,8 +1,7 @@
 // Browser-side upload pipeline: validate pages, create the course, send page
 // text in batches, then build the topic map. Used for PDFs and sample notes.
 import { LIMITS } from "@/lib/ai/schemas";
-import { postJSON } from "@/lib/api-client";
-import { createClient } from "@/lib/supabase/client";
+import { deleteJSON, postJSON } from "@/lib/api-client";
 import type { PageText } from "@/lib/pdf/extract";
 
 export const SCANNED_PDF_MESSAGE =
@@ -45,7 +44,7 @@ export async function uploadNotes(input: {
     return { courseId, flaggedPages: result.flaggedPages };
   } catch (err) {
     // Don't leave a half-built course behind.
-    await createClient().from("courses").delete().eq("id", courseId);
+    await deleteJSON(`/api/courses/${courseId}`).catch(() => undefined);
     throw err;
   }
 }

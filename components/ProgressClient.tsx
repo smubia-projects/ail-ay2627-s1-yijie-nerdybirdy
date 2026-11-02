@@ -8,8 +8,8 @@ import { Loading } from "@/components/Spinner";
 import type { QuizFormat } from "@/lib/ai/schemas";
 import { LEVEL_NAMES, levelLabel, orderTopicsForReview, pageRange } from "@/lib/mastery";
 import { FORMATS } from "@/lib/quiz/formats";
-import { createClient } from "@/lib/supabase/client";
-import { useSession } from "@/lib/supabase/use-session";
+import { getJSON, type CourseResponse } from "@/lib/api-client";
+import { useSession } from "@/lib/session";
 
 type Topic = {
   id: string;
@@ -68,31 +68,16 @@ export function ProgressClient() {
 
   useEffect(() => {
     if (session !== "ready") return;
-    const supabase = createClient();
     Promise.all([
-      supabase.from("courses").select("name").eq("id", courseId).maybeSingle(),
-      supabase
-        .from("topics")
-        .select("id, name, page_start, page_end, mastery_level, level_progress, danger_zone, last_practiced_at")
-        .eq("course_id", courseId)
-        .order("page_start"),
-      supabase
-        .from("attempts")
-        .select("topic_id, verdict, confidence, created_at, questions(format)")
-        .eq("course_id", courseId)
-        .order("created_at", { ascending: false })
-        .limit(300),
-    ]).then(([c, t, a]) => {
-      if (c.error || t.error || a.error) setLoad({ kind: "error" });
-      else if (!c.data) setLoad({ kind: "missing" });
-      else
-        setLoad({
-          kind: "ok",
-          name: c.data.name as string,
-          topics: (t.data ?? []) as Topic[],
-          attempts: (a.data ?? []) as unknown as Attempt[],
-        });
-    });
+      getJSON<CourseResponse>(`/api/courses/${courseId}`),
+      getJSON<{ attempts: Attempt[] }>(`/api/courses/${courseId}/attempts`),
+    ]).then(
+      ([c, a]) => {
+        if (!c.course) setLoad({ kind: "missing" });
+        else setLoad({ kind: "ok", name: c.course.name, topics: c.topics as Topic[], attempts: a.attempts });
+      },
+      () => setLoad({ kind: "error" }),
+    );
   }, [session, courseId]);
 
   if (session === "error" || load.kind === "error") {

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Loading } from "@/components/Spinner";
-import { createClient } from "@/lib/supabase/client";
+import { getJSON } from "@/lib/api-client";
 
 export function PageModal({
   courseId,
@@ -24,16 +24,14 @@ export function PageModal({
 
   useEffect(() => {
     let active = true;
-    createClient()
-      .from("pages")
-      .select("text")
-      .eq("course_id", courseId)
-      .eq("page_number", page)
-      .maybeSingle()
-      .then(({ data, error }) => {
-        if (!active) return;
-        setLoaded({ page, text: error || !data ? null : (data.text as string), failed: !!error || !data });
-      });
+    getJSON<{ text: string | null }>(`/api/courses/${courseId}/pages/${page}`).then(
+      ({ text }) => {
+        if (active) setLoaded({ page, text, failed: text === null });
+      },
+      () => {
+        if (active) setLoaded({ page, text: null, failed: true });
+      },
+    );
     return () => {
       active = false;
     };

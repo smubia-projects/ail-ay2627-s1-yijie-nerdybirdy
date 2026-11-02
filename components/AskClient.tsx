@@ -13,9 +13,8 @@ import { PageModal } from "@/components/PageModal";
 import { InjectionBanner } from "@/components/SafetyCards";
 import { Loading } from "@/components/Spinner";
 import { LIMITS } from "@/lib/ai/schemas";
-import { postJSON } from "@/lib/api-client";
-import { createClient } from "@/lib/supabase/client";
-import { useSession } from "@/lib/supabase/use-session";
+import { getJSON, postJSON, type CourseResponse } from "@/lib/api-client";
+import { useSession } from "@/lib/session";
 
 type CourseInfo = { name: string; flagged_pages: number[] };
 
@@ -35,16 +34,14 @@ export function AskClient() {
 
   useEffect(() => {
     if (session !== "ready") return;
-    const supabase = createClient();
-    Promise.all([
-      supabase.from("courses").select("name, flagged_pages").eq("id", courseId).maybeSingle(),
-      supabase.from("topics").select("name").eq("course_id", courseId).order("page_start").limit(3),
-    ]).then(([c, t]) => {
-      if (c.error) setCourse("error");
-      else if (!c.data) setCourse("missing");
-      else setCourse(c.data as CourseInfo);
-      setTopics((t.data ?? []).map((x) => x.name as string));
-    });
+    getJSON<CourseResponse>(`/api/courses/${courseId}`).then(
+      ({ course, topics }) => {
+        if (!course) setCourse("missing");
+        else setCourse(course as CourseInfo);
+        setTopics(topics.slice(0, 3).map((x) => x.name as string));
+      },
+      () => setCourse("error"),
+    );
   }, [session, courseId]);
 
   useEffect(() => {
