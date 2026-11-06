@@ -40,7 +40,7 @@ where it runs and what holds your data:
   answer, quiz question, grading, study-notes request or upload, taken just
   before the first model call (cached notes and MCQ grading are free). Past the
   limit the app shows the AI Lodge card; a paused demo shows a notice.
-- **Models.** `MODEL_NAME` (default `gemini-3.5-flash-lite`) is the professor;
+- **Models.** `MODEL_NAME` (default `deepseek-v4-flash`) is the professor;
   `CHECKER_MODEL_NAME` (default `gpt-5-mini`, another lab's model) verifies every
   question. Off OpenRouter, non-GPT models use JSON mode with the schema in the
   prompt (still zod-validated and retried once); OpenRouter's provider
