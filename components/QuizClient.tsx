@@ -9,12 +9,11 @@ import { QuestionCard, type AnswerDraft } from "@/components/QuestionCard";
 import { InjectionBanner, WellbeingCard } from "@/components/SafetyCards";
 import { Loading, LoadingCard } from "@/components/Spinner";
 import type { QuizFormat } from "@/lib/ai/schemas";
-import { postJSON } from "@/lib/api-client";
+import { announce, getJSON, isHandledApiError, postJSON, type CourseResponse } from "@/lib/api-client";
 import { levelLabel, pageRange } from "@/lib/mastery";
 import { FORMAT_ORDER, FORMATS } from "@/lib/quiz/formats";
 import type { GradedResult, GradeResponse, PublicQuestion } from "@/lib/quiz/types";
-import { createClient } from "@/lib/supabase/client";
-import { useSession } from "@/lib/supabase/use-session";
+import { useSession } from "@/lib/session";
 
 const SESSION_LENGTH = 5;
 // How many questions to keep ready ahead of the current one.
@@ -74,22 +73,13 @@ function QuizSession({ initialTopic }: { initialTopic: string | null }) {
 
   useEffect(() => {
     if (session !== "ready") return;
-    const supabase = createClient();
-    Promise.all([
-      supabase.from("courses").select("name, flagged_pages").eq("id", courseId).maybeSingle(),
-      supabase
-        .from("topics")
-        .select("id, name, page_start, page_end, mastery_level, danger_zone")
-        .eq("course_id", courseId)
-        .order("page_start"),
-    ]).then(([c, t]) => {
-      if (c.error || t.error) setCourse("error");
-      else if (!c.data) setCourse("missing");
+    getJSON<CourseResponse>(`/api/courses/${courseId}`).then(({ course, topics }) => {
+      if (!course) setCourse("missing");
       else {
-        setCourse(c.data as { name: string; flagged_pages: number[] });
-        setTopics((t.data ?? []) as Topic[]);
+        setCourse(course as { name: string; flagged_pages: number[] });
+        setTopics(topics as Topic[]);
       }
-    });
+    }, () => setCourse("error"));
   }, [session, courseId]);
 
   const refresh = () => setReadyCount(queue.current.length);
@@ -97,7 +87,9 @@ function QuizSession({ initialTopic }: { initialTopic: string | null }) {
   const mixed = topicChoice === "mix" || topicChoice === "weak";
 
   function requestNext(topic: string, avoidTopicIds: string[]): Promise<PublicQuestion> {
-    return postJSON<PublicQuestion>("/api/quiz/next", { courseId, topic, format: formatChoice, avoidTopicIds });
+    // Quiet: questions are generated ahead in the background; a limit hit is shown only
+    // when the student is actually waiting for the next question (pump's error path).
+    return postJSON<PublicQuestion>("/api/quiz/next", { courseId, topic, format: formatChoice, avoidTopicIds }, { quiet: true });
   }
 
   function show(q: PublicQuestion) {
@@ -141,6 +133,7 @@ function QuizSession({ initialTopic }: { initialTopic: string | null }) {
         refresh();
         // Only interrupt the student if they're actually waiting for it.
         if (waiting.current && queue.current.length === 0 && inflight.current === 0) {
+          if (isHandledApiError(err)) announce(err);
           setPhase({ kind: "error", message: err instanceof Error ? err.message : "Something went wrong.", retry: "next" });
         }
       },

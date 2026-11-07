@@ -6,8 +6,8 @@ import { useEffect, useState } from "react";
 import { Spinner } from "@/components/Spinner";
 import { UploadDropzone } from "@/components/UploadDropzone";
 import { LIMITS } from "@/lib/ai/schemas";
-import { createClient } from "@/lib/supabase/client";
-import { useSession } from "@/lib/supabase/use-session";
+import { getJSON } from "@/lib/api-client";
+import { useSession } from "@/lib/session";
 import { uploadNotes, validatePages, type UploadStep } from "@/lib/upload";
 import type { PageText } from "@/lib/pdf/extract";
 
@@ -38,14 +38,10 @@ export function HomeClient() {
 
   useEffect(() => {
     if (session !== "ready") return;
-    createClient()
-      .from("courses")
-      .select("id, name, page_count, exam_date")
-      .order("created_at", { ascending: false })
-      .then(({ data, error }) => {
-        if (error) setCoursesError(true);
-        else setCourses((data ?? []) as CourseSummary[]);
-      });
+    getJSON<{ courses: CourseSummary[] }>("/api/courses").then(
+      ({ courses }) => setCourses(courses),
+      () => setCoursesError(true),
+    );
   }, [session]);
 
   const busy = status.kind === "working";
@@ -162,7 +158,7 @@ export function HomeClient() {
         <UploadDropzone file={file} onFile={setFile} disabled={busy} />
 
         <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-700">
-          🔒 Your notes are only used to teach you. We keep the extracted text for 7 days, then
+          🔒 Your notes are only used to teach you. We keep the extracted text for 24 hours, then
           delete it. Please don&apos;t upload personal or confidential information.
         </p>
 

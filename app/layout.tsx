@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import Link from "next/link";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Footer } from "@/components/Footer";
+import { ApiNotices } from "@/components/RateLimitCTA";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -38,6 +39,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         </header>
         <main className="mx-auto w-full max-w-2xl flex-1 px-4 py-6 [overflow-wrap:anywhere]">{children}</main>
         <Footer />
+        <ApiNotices />
       </body>
     </html>
   );
