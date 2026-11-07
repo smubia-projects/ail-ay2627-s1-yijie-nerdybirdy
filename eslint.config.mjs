@@ -14,6 +14,9 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     // pdf.js worker copied from node_modules (vendor code).
     "public/pdf.worker.min.mjs",
+    // API bundle (npm run build:server) and the vendored shared rate-limit engine.
+    "server/dist/**",
+    "server/rateLimitEngine.js",
   ]),
 ]);
 

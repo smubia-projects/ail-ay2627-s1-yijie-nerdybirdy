@@ -15,8 +15,7 @@ import { comebackFormat, FORMATS, formatsForLevel } from "@/lib/quiz/formats";
 import { logSafetyEvent } from "@/lib/safety/events";
 import { neutralizeDelimiters, wrapNotes } from "@/lib/safety/injection";
 import { spendLLMCalls } from "@/lib/safety/limits";
-import { createAdminClient } from "@/lib/supabase/admin";
-import type { UserContext } from "@/lib/supabase/server";
+import type { UserContext } from "@/lib/db/context";
 import type { PublicQuestion, TopicRef } from "@/lib/quiz/types";
 
 const MAX_ATTEMPTS_PER_TOPIC = 3; // first try + 2 regenerations
@@ -55,7 +54,7 @@ class VerificationFailedError extends Error {}
 export async function nextQuestion(ctx: UserContext, req: NextRequest): Promise<PublicQuestion> {
   const started = Date.now();
 
-  const { data: course, error: courseError } = await ctx.supabase
+  const { data: course, error: courseError } = await ctx.db
     .from("courses")
     .select("id, page_count")
     .eq("id", req.courseId)
@@ -63,7 +62,7 @@ export async function nextQuestion(ctx: UserContext, req: NextRequest): Promise<
   if (courseError) throw courseError;
   if (!course) throw new UserFacingError("We couldn't find that course.", 404);
 
-  const { data: topicRows, error: topicError } = await ctx.supabase
+  const { data: topicRows, error: topicError } = await ctx.db
     .from("topics")
     .select("id, name, summary, page_start, page_end, mastery_level, level_progress, danger_zone, last_practiced_at")
     .eq("course_id", req.courseId);
@@ -90,7 +89,7 @@ export async function nextQuestion(ctx: UserContext, req: NextRequest): Promise<
 }
 
 async function latestAttemptByTopic(ctx: UserContext, courseId: string): Promise<Map<string, LatestAttempt>> {
-  const { data, error } = await ctx.supabase
+  const { data, error } = await ctx.db
     .from("attempts")
     .select("topic_id, verdict, key_point_results, created_at, questions(format)")
     .eq("course_id", courseId)
@@ -152,7 +151,7 @@ function pickFormat(
 async function loadPages(ctx: UserContext, courseId: string, ranges: [number, number][]) {
   const wanted = new Set<number>();
   for (const [a, b] of ranges) for (let p = a; p <= b; p++) wanted.add(p);
-  const { data, error } = await ctx.supabase
+  const { data, error } = await ctx.db
     .from("pages")
     .select("page_number, text")
     .eq("course_id", courseId)
@@ -271,7 +270,7 @@ async function generateForTopic(
   const shownPages = new Set(pages.map((p) => p.page));
   const notesBlock = wrapNotes(pages);
 
-  const { data: prev } = await ctx.supabase
+  const { data: prev } = await ctx.db
     .from("questions")
     .select("public_payload")
     .eq("topic_id", topic.id)
@@ -333,7 +332,7 @@ async function generateForTopic(
 
     if (verdict.ok) return saveQuestion(ctx, req.courseId, topic, second, format, level, gen, !!comeback);
 
-    await logSafetyEvent(ctx.supabase, {
+    await logSafetyEvent(ctx.db, {
       type: "verification_failed",
       courseId: req.courseId,
       detail: { format, attempt, failed: verdict.failed, issue_count: verdict.issues.length },
@@ -362,7 +361,7 @@ async function saveQuestion(
     ...new Set([...gen.private.source_pages, ...gen.private.key_points.map((k) => k.page)]),
   ].sort((a, b) => a - b);
 
-  const { data: q, error } = await ctx.supabase
+  const { data: q, error } = await ctx.db
     .from("questions")
     .insert({
       course_id: courseId,
@@ -377,7 +376,7 @@ async function saveQuestion(
     .single();
   if (error) throw error;
 
-  const { error: keyError } = await createAdminClient()
+  const { error: keyError } = await ctx.db
     .from("question_keys")
     .insert({
       question_id: q.id,
@@ -385,7 +384,7 @@ async function saveQuestion(
       private_payload: { ...gen.private, second_topic_id: second?.id ?? null, comeback },
     });
   if (keyError) {
-    await ctx.supabase.from("questions").delete().eq("id", q.id);
+    await ctx.db.from("questions").delete().eq("id", q.id);
     throw keyError;
   }
 
