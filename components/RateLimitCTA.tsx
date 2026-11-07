@@ -16,7 +16,7 @@ export const PROJECT_CTA = {
   accentColor: '#4338CA',
   headline: "Class dismissed, for now!",
   description:
-    "The professor answered {count} times in this demo, every answer from your own notes with checked page citations. Want to build AI that teaches responsibly? Join us and build projects like this.",
+    "Want to build AI tutors that teach from your own notes and show where each answer came from? AI Lodge is where classmates become build partners and ship working AI products together.",
   programme: 'AI Lodge',
   programmeLink: 'https://www.smubia.com/ailodge',
   githubLink: 'https://github.com/smubia-projects/ail-ay2627-s1-yijie-nerdybirdy',
