@@ -4,15 +4,21 @@ import type { ChatCompletionCreateParamsNonStreaming } from "openai/resources/ch
 import type { EmbeddingCreateParams } from "openai/resources/embeddings";
 import { z } from "zod";
 
-export const EMBED_DIMENSIONS = 1536;
+export { EMBED_DIMENSIONS } from "@/lib/db/pool";
+import { EMBED_DIMENSIONS } from "@/lib/db/pool";
 const EMBED_BATCH = 64;
 
-// Only route prompts to providers that support every parameter we send and
-// that don't collect data. Never remove data_collection silently: if no
+// Any OpenAI-compatible gateway (API_BASE_URL); the AI Lodge deploy uses apiyi.
+const BASE_URL = (process.env.API_BASE_URL || "https://api.apiyi.com/v1").replace(/\/+$/, "");
+const IS_OPENROUTER = BASE_URL.includes("openrouter.ai");
+
+// OpenRouter only: route prompts to providers that support every parameter we
+// send and that don't collect data. Never remove data_collection silently: if no
 // provider is left, callers get an LLMError with code "no_provider".
 // sort: "throughput" prefers the fastest providers (provider speed varies a
-// lot for reasoning models; see docs/DECISIONS.md).
+// lot for reasoning models; see docs/DECISIONS.md). Other gateways reject these fields.
 const PROVIDER = { require_parameters: true, data_collection: "deny", sort: "throughput" } as const;
+const providerFields = () => (IS_OPENROUTER ? { provider: PROVIDER } : {});
 
 export class LLMError extends Error {
   constructor(
@@ -25,16 +31,23 @@ export class LLMError extends Error {
   }
 }
 
-function requireEnv(name: string): string {
-  const value = process.env[name];
-  if (!value) throw new Error(`Missing env var ${name}`);
-  return value;
+/** The first of these env vars that is set (AI Lodge names first, then the original ones). */
+function requireEnv(...names: string[]): string {
+  for (const name of names) {
+    const value = process.env[name]?.trim();
+    if (value) return value;
+  }
+  throw new Error(`Missing env var ${names[0]}`);
+}
+
+export function aiConfigured(): boolean {
+  return Boolean((process.env.API_KEY || process.env.OPENROUTER_API_KEY || "").trim());
 }
 
 export const models = {
-  professor: () => requireEnv("MODEL_PROFESSOR"),
-  checker: () => requireEnv("MODEL_CHECKER"),
-  embed: () => requireEnv("MODEL_EMBED"),
+  professor: () => requireEnv("MODEL_NAME", "MODEL_PROFESSOR"),
+  checker: () => requireEnv("CHECKER_MODEL_NAME", "MODEL_CHECKER"),
+  embed: () => requireEnv("EMBEDDING_MODEL_NAME", "MODEL_EMBED"),
 };
 
 let client: OpenAI | null = null;
@@ -45,8 +58,8 @@ function getClient(): OpenAI {
       ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
       : "http://localhost:3000";
     client = new OpenAI({
-      baseURL: "https://openrouter.ai/api/v1",
-      apiKey: requireEnv("OPENROUTER_API_KEY"),
+      baseURL: BASE_URL,
+      apiKey: requireEnv("API_KEY", "OPENROUTER_API_KEY"),
       // 45 s per attempt; the SDK retries once on 408/409/429/5xx with backoff.
       timeout: 45_000,
       maxRetries: 1,
@@ -97,7 +110,10 @@ export async function callJSON<T extends z.ZodType>(
     { mode: "json_object", reasoning: false },
   ];
   const cached = resolvedVariant.get(cacheKey);
-  const variants = cached ? [cached] : ladder;
+  // Off OpenRouter, only gpt- models are known to honour a strict json_schema; others
+  // (apiyi's Gemini, DeepSeek) start at json_object, with the schema written into the prompt.
+  const strictOK = IS_OPENROUTER || opts.model.startsWith("gpt-");
+  const variants = cached ? [cached] : strictOK ? ladder : ladder.slice(2);
 
   const baseMessages = (v: Variant): Message[] => [
     {
@@ -158,7 +174,8 @@ async function complete<T extends z.ZodType>(
   const body = {
     model: opts.model,
     messages,
-    temperature: opts.temperature,
+    // gpt-5 models accept only the default temperature.
+    ...(opts.model.startsWith("gpt-5") ? {} : { temperature: opts.temperature }),
     ...(opts.maxTokens ? { max_tokens: opts.maxTokens } : {}),
     response_format:
       variant.mode === "json_schema"
@@ -167,9 +184,13 @@ async function complete<T extends z.ZodType>(
             json_schema: { name: opts.name ?? "response", strict: true, schema: jsonSchema },
           }
         : { type: "json_object" },
-    // OpenRouter-specific fields; the SDK passes them through.
-    provider: PROVIDER,
-    ...(variant.reasoning ? { reasoning: { effort: opts.reasoning ?? "low", exclude: true } } : {}),
+    // OpenRouter-specific fields (only sent there); the SDK passes them through.
+    ...providerFields(),
+    ...(variant.reasoning
+      ? IS_OPENROUTER
+        ? { reasoning: { effort: opts.reasoning ?? "low", exclude: true } }
+        : { reasoning_effort: opts.reasoning ?? "low" }
+      : {}),
   };
   const res = await getClient().chat.completions.create(
     body as unknown as ChatCompletionCreateParamsNonStreaming,
@@ -236,9 +257,9 @@ function toLLMError(err: unknown): LLMError {
   if (err instanceof APIError) {
     // Connection errors and timeouts have no status; name them instead.
     const what = err.status ? `HTTP ${err.status}` : err.constructor.name;
-    return new LLMError("upstream", `OpenRouter request failed (${what}).`, err.status);
+    return new LLMError("upstream", `AI gateway request failed (${what}).`, err.status);
   }
-  return new LLMError("upstream", "OpenRouter request failed.");
+  return new LLMError("upstream", "AI gateway request failed.");
 }
 
 // ---------- Embeddings ----------
@@ -251,7 +272,8 @@ export async function embed(texts: string[]): Promise<number[][]> {
       model: models.embed(),
       input: batch,
       encoding_format: "float",
-      provider: PROVIDER,
+      dimensions: EMBED_DIMENSIONS,
+      ...providerFields(),
     };
     let res;
     try {
