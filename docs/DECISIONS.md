@@ -92,3 +92,13 @@ One line per decision or deviation from docs/SPEC.md.
 - Loading: a shared Spinner/Loading/LoadingCard (components/Spinner.tsx) on every wait, with rotating status messages for long waits.
 - Study notes: /api/topic-notes generates clean per-chapter notes (sections, key terms, watch-outs) from that chapter's pages only. Points whose pages weren't shown are dropped (grounding), output is zod-validated, and the call counts toward the daily limit. They're cached in topics.study_notes (migration 0002); if the column doesn't exist yet, notes are generated without caching.
 - Course home = study hub (action tiles + numbered chapter list with 📘 Notes / 🎯 Quiz). Progress = analytics (mastery %, level breakdown, confidence calibration, per-chapter accuracy, recent answers).
+
+## AI Lodge showcase deployment (Nov 2026)
+
+- Supabase (anonymous auth + RLS) → Neon + an anonymous session id (`X-Session-Id`). RLS's `user_id = auth.uid()` is now added to every statement by `lib/db/scoped.ts`; `tests/scoped-db.test.ts` checks it.
+- Next.js route handlers → an Express API in `server/` on Cloud Run (esbuild bundle, `--conditions=react-server` so `server-only` resolves); Next.js is frontend only.
+- Embeddings 1536 → 768 dims (`dimensions: 768`), the club's pgvector standard.
+- Model env names: `MODEL_NAME` / `CHECKER_MODEL_NAME` / `EMBEDDING_MODEL_NAME` / `API_KEY` / `API_BASE_URL` first, the original names as fallbacks. Off OpenRouter, non-GPT models start at json_object with the schema in the prompt; gpt-5 models get no temperature (they accept only the default).
+- `bump_usage` daily caps → the shared AI Lodge rate limiter (one hit per student action, before the first model call). Background quiz prefetches don't pop the limit card; it shows only when the student is waiting.
+- Cron keep-alive and 7-day retention → 24-hour retention, cleaned up on ordinary requests.
+- Demo limits: 60 pages per PDF, 3 courses per visitor.

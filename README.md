@@ -10,6 +10,52 @@
 
 Built for the AI Lodge Hackathon · Track: **Productivity & Workflows**
 
+## AI Lodge showcase deployment
+
+This fork is reshaped to run as a public demo on the SMU BIA AI Lodge stack. The
+product is unchanged: upload a lecture PDF (parsed in your browser), ask the
+professor with validated page citations, take quizzes that are verified before you
+see them, get graded with mistake diagnosis, and track mastery. What changed is
+where it runs and what holds your data:
+
+| Part | Where | Notes |
+|---|---|---|
+| Next.js app (`app/`, `components/`) | Vercel | frontend only; calls the API at `NEXT_PUBLIC_API_BASE` |
+| API (`server/`, bundled with esbuild with the `lib/` code it imports) | Google Cloud Run | Express, the same `lib/` functions the Next.js route handlers called |
+| Notes, chunks, quizzes, progress | Neon Postgres + pgvector | 768-dim embeddings (was 1536) |
+| Model calls | an OpenAI-compatible gateway (`API_BASE_URL`, apiyi) | `MODEL_NAME`, `CHECKER_MODEL_NAME`, `EMBEDDING_MODEL_NAME` |
+
+- **No Supabase, no sign-in.** Supabase anonymous auth and RLS are replaced by an
+  anonymous session id the browser keeps in `localStorage` and sends as
+  `X-Session-Id`. Every database statement goes through `lib/db/scoped.ts`, which
+  adds `user_id = <session id>` to it (and writes it on every insert), so one
+  visitor can never read another's notes (`tests/scoped-db.test.ts`). Anyone
+  holding a browser's id could see that browser's courses; clearing site data
+  starts over.
+- **Notes are deleted 24 hours after upload** (`NOTES_TTL_HOURS`), checked on
+  ordinary requests. The Vercel cron keep-alive is gone (Cloud Run runs nothing
+  between requests, and Neon doesn't need waking).
+- **One cost control.** The per-user and global daily LLM counters
+  (`bump_usage`) are replaced by the shared AI Lodge rate limiter: one hit per
+  answer, quiz question, grading, study-notes request or upload, taken just
+  before the first model call (cached notes and MCQ grading are free). Past the
+  limit the app shows the AI Lodge card; a paused demo shows a notice.
+- **Models.** `MODEL_NAME` (default `deepseek-v4-flash`) is the professor;
+  `CHECKER_MODEL_NAME` (default `gpt-5-mini`, another lab's model) verifies every
+  question. Off OpenRouter, non-GPT models use JSON mode with the schema in the
+  prompt (still zod-validated and retried once); OpenRouter's provider
+  preferences (`data_collection: deny`) apply only when `API_BASE_URL` is
+  OpenRouter. The original names (`MODEL_PROFESSOR`, `MODEL_CHECKER`,
+  `MODEL_EMBED`, `OPENROUTER_API_KEY`) still work.
+- **Smaller limits for the demo:** up to 60 pages per PDF and 3 courses per visitor.
+- `supabase/migrations/` and `evals/` are the original Supabase build's schema and
+  eval suite; they are kept for reference and don't run against this deployment
+  (the Neon schema is in `lib/db/pool.ts`).
+
+Run it locally: `cp .env.example .env` (fill `API_KEY`, `DATABASE_URL`), then
+`npm run dev:server` (API on :8080) and, with `NEXT_PUBLIC_API_BASE=http://localhost:8080`
+in `.env.local`, `npm run dev` (app on :3000). `npm test` runs the scoping tests.
+
 ---
 
 ## 1. Problem Statement
