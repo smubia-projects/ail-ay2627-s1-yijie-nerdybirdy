@@ -190,7 +190,10 @@ async function complete<T extends z.ZodType>(
       ? IS_OPENROUTER
         ? { reasoning: { effort: opts.reasoning ?? "low", exclude: true } }
         : { reasoning_effort: opts.reasoning ?? "low" }
-      : {}),
+      : // Off OpenRouter, DeepSeek in JSON mode would otherwise think at length (one grading took 74 s).
+        !IS_OPENROUTER && /deepseek/i.test(opts.model)
+        ? { reasoning_effort: "none" }
+        : {}),
   };
   const res = await getClient().chat.completions.create(
     body as unknown as ChatCompletionCreateParamsNonStreaming,

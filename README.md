@@ -40,9 +40,9 @@ where it runs and what holds your data:
   answer, quiz question, grading, study-notes request or upload, taken just
   before the first model call (cached notes and MCQ grading are free). Past the
   limit the app shows the AI Lodge card; a paused demo shows a notice.
-- **Models.** `MODEL_NAME` (default `deepseek-v4-flash`) is the professor;
-  `CHECKER_MODEL_NAME` (default `gpt-5-mini`, another lab's model) verifies every
-  question. Off OpenRouter, non-GPT models use JSON mode with the schema in the
+- **Models.** `MODEL_NAME` (default `deepseek-v4-1-flash-260910`) is the professor;
+  `CHECKER_MODEL_NAME` (default `deepseek-v4-1-flash-260910`, as in the student's original, which ran both
+  roles on DeepSeek V4.1 Flash) verifies every question. Off OpenRouter, non-GPT models use JSON mode with the schema in the
   prompt (still zod-validated and retried once); OpenRouter's provider
   preferences (`data_collection: deny`) apply only when `API_BASE_URL` is
   OpenRouter. The original names (`MODEL_PROFESSOR`, `MODEL_CHECKER`,
